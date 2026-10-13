@@ -1,0 +1,8 @@
+# 依赖（本项目零依赖，留着以防有人装了东西）
+node_modules/
+
+# 备份件与系统垃圾
+*.bak
+*.bak.*
+Thumbs.db
+.DS_Store
