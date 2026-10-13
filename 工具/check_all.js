@@ -23,15 +23,16 @@ const path = require('path');
 const { spawnSync } = require('child_process');
 
 const TOOL = 'check_all.js';
-const USAGE = '用法：node 工具/check_all.js <卡包目录|某个.json> [--json]';
+const USAGE = '用法：node 工具/check_all.js <卡包目录|某个.json> [--输出端=酒馆|叙梦|双端] [--json]';
 const MARK = { pass: '✓', hint: '!', fail: '✗' };
 const CHECKS = ['check_style.js', 'check_setting.js', 'check_entries.js', 'check_worldbook.js'];
 
 function parseArgv(argv) {
-  const opt = { json: false, help: false, target: null };
+  const opt = { json: false, help: false, target: null, output: null };
   for (const a of argv) {
     if (a === '--json') opt.json = true;
     else if (a === '--help' || a === '-h') opt.help = true;
+    else if (a.startsWith('--输出端=')) opt.output = a.slice(a.indexOf('=') + 1);
     else if (!a.startsWith('--') && !opt.target) opt.target = a;
   }
   return opt;
@@ -56,6 +57,7 @@ function run(target, opt) {
       continue;
     }
     const args = [file, target, '--json'];
+    if (opt.output) args.push('--输出端=' + opt.output);
     const r = spawnSync(process.execPath, args, { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
     let parsed = null;
     try { parsed = JSON.parse(r.stdout); } catch (e) { parsed = null; }
@@ -99,6 +101,10 @@ function run(target, opt) {
 const opt = parseArgv(process.argv.slice(2));
 if (opt.help) { console.log(USAGE); process.exit(0); }
 if (!opt.target) { console.error(USAGE); process.exit(2); }
+if (opt.output !== null && !['酒馆', '叙梦', '双端', 'st', 'xm', 'both'].includes(String(opt.output).trim())) {
+  console.error('输出端只认 酒馆 / 叙梦 / 双端（收到：' + opt.output + '）\n' + USAGE);
+  process.exit(2);
+}
 const out = run(opt.target, opt);
 if (opt.json) console.log(JSON.stringify(out, null, 2));
 process.exit(out.exit);

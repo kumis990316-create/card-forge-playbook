@@ -20,7 +20,16 @@
 'use strict';
 
 const TOOL = 'check_worldbook.js';
-const USAGE = '用法：node 工具/check_worldbook.js <卡包目录|某个.json> [--json]';
+const USAGE = '用法：node 工具/check_worldbook.js <卡包目录|某个.json> [--输出端=酒馆|叙梦|双端] [--json]';
+
+/* 输出端：决定「位置」按哪一端的规矩查（见 05_输出端与平台.md） */
+const OUTPUT_ALIAS = {
+  '酒馆': 'st', 'st': 'st', 'sillytavern': 'st', 'SillyTavern': 'st',
+  '叙梦': 'xm', 'xm': 'xm',
+  '双端': 'both', 'both': 'both', '双': 'both',
+};
+const OUTPUT_LABEL = { st: '酒馆', xm: '叙梦', both: '双端' };
+
 
 /* 条目必备字段（照 ST 世界书导出） */
 const REQUIRED_FIELDS = ['uid', 'comment', 'key', 'content', 'constant', 'order', 'position', 'depth', 'probability'];
@@ -231,10 +240,11 @@ function commonHead(rep, tool, target) {
 
 /* ---------------------------- 参数与入口 ---------------------------- */
 function parseArgv(argv) {
-  const opt = { json: false, help: false, target: null, flags: {} };
+  const opt = { json: false, help: false, target: null, flags: {}, output: null };
   for (const a of argv) {
     if (a === '--json') opt.json = true;
     else if (a === '--help' || a === '-h') opt.help = true;
+    else if (a.startsWith('--输出端=') || a.startsWith('--platform=')) opt.output = a.slice(a.indexOf('=') + 1);
     else if (a.startsWith('--')) opt.flags[a.slice(2)] = true;
     else if (!opt.target) opt.target = a;
   }
@@ -245,6 +255,10 @@ function main(tool, usage, run) {
   const opt = parseArgv(process.argv.slice(2));
   if (opt.help) { console.log(usage); process.exit(0); }
   if (!opt.target) { console.error(usage); process.exit(2); }
+  if (opt.output !== null && !OUTPUT_ALIAS[String(opt.output).trim()]) {
+    console.error('输出端只认 酒馆 / 叙梦 / 双端（收到：' + opt.output + '）\n' + usage);
+    process.exit(2);
+  }
   const r = run(opt.target, opt);
   if (opt.json) console.log(JSON.stringify(r, null, 2));
   process.exit(r.exit);
@@ -252,6 +266,7 @@ function main(tool, usage, run) {
 
 /* --------------------------------- 体检 --------------------------------- */
 function run(target, opt) {
+  const mode = OUTPUT_ALIAS[String(opt.output || '酒馆').trim()] || 'st';
   const rep = createReporter(TOOL, target, opt);
   const t = commonHead(rep, TOOL, target);
   const srcs = entrySources(t);
@@ -264,6 +279,7 @@ function run(target, opt) {
     return rep.finish();
   }
   rep.note('  世界书：' + srcs.map((s) => s.name + '（' + s.entries.length + ' 条）').join('、'));
+  rep.note('  输出端：' + OUTPUT_LABEL[mode] + '（位置按这一端的规矩查；--输出端= 可改，见 05_输出端与平台.md）');
 
   /* ① 字段完整性 ------------------------------------------------------- */
   const missingCount = new Map();
@@ -339,7 +355,70 @@ function run(target, opt) {
   if (agree.length === 0 && dualBad === 0 && solo.length === 0) {
     rep.pass('位置双轨：position／depth／probability 都没有两轨打架，也没有条目同时写两轨');
   }
-  for (const s of solo) rep.hint('位置双轨：' + s + '；只写一轨也能跑（ST 会归一化），但别的工具可能读错轨，建议两轨写同值');
+  for (const s of solo) {
+    if (mode === 'xm' && s.startsWith('position：')) continue;   // 叙梦卡只写顶层＝正常形态
+    rep.hint('位置双轨：' + s + '；只写一轨也能跑（ST 会归一化），但别的工具可能读错轨，建议两轨写同值');
+  }
+
+  /* ③′ 输出端形态（位置按哪一端的规矩查） ------------------------------- */
+  let outBad = 0;
+  const topPos = (x) => (has(x.e, 'position') ? num(x.e.position) : null);
+  const extPos = (x) => {
+    const et = x.e.extensions && typeof x.e.extensions === 'object' ? x.e.extensions : null;
+    return et && has(et, 'position') ? num(et.position) : null;
+  };
+  const outFail = (msg) => { outBad++; if (outBad <= LIST_CAP) rep.fail(msg); };
+
+  if (mode === 'xm') {
+    // 叙梦读顶层：0–10（界面六格是 5–10）。只写顶层＝正常形态，不算问题
+    for (const x of all) {
+      const v = topPos(x);
+      if (v === null || !isFinite(v) || v < 0 || v > 10) {
+        outFail('输出端（叙梦）：' + tag(x) + ' 的顶层 position＝' + JSON.stringify(has(x.e, 'position') ? x.e.position : undefined) +
+          '（叙梦读的就是顶层，只认 0–10；界面六格对应 5–10）');
+      }
+      if (topPos(x) === null && extPos(x) !== null) {
+        outFail('输出端（叙梦）：' + tag(x) + ' 只写了 extensions.position、没写顶层 —— 叙梦只读顶层，这条会落到默认位置');
+      }
+    }
+    if (outBad === 0) rep.pass('输出端（叙梦）：' + all.length + ' 条位置都写在顶层、且落在 0–10 内');
+  } else if (mode === 'st') {
+    for (const x of all) {
+      const v = topPos(x), e2 = extPos(x);
+      if (v !== null && (!isFinite(v) || v < 0 || v > 7)) {
+        outFail('输出端（酒馆）：' + tag(x) + ' 的顶层 position＝' + JSON.stringify(x.e.position) + '（酒馆枚举只有 0–7）');
+      }
+      if (e2 !== null && (!isFinite(e2) || e2 < 0 || e2 > 7)) {
+        outFail('输出端（酒馆）：' + tag(x) + ' 的 extensions.position＝' + JSON.stringify(x.e.extensions.position) + '（酒馆枚举只有 0–7）');
+      }
+      if (v !== null && isFinite(v) && v >= 5 && v <= 7 && e2 === null) {
+        outBad++;
+        if (outBad <= LIST_CAP) {
+          rep.hint('输出端（酒馆）：' + tag(x) + ' 顶层写了 position=' + v +
+            '，但酒馆里 5–7 是「示例消息前／后」，不是角色定义的位置 —— 双端卡的顶层要压在 0–4');
+        }
+      }
+    }
+    if (outBad === 0) rep.pass('输出端（酒馆）：' + all.length + ' 条的位置字段都落在酒馆枚举内（0–7）');
+  } else {
+    // 双端：顶层压 0–4（两端唯一不撞车的一段）＋ extensions 同值；少一轨＝必须修
+    for (const x of all) {
+      const v = topPos(x), e2 = extPos(x);
+      if (v === null) {
+        outFail('输出端（双端）：' + tag(x) + ' 没写顶层 position —— 叙梦那一端读不到');
+      } else if (!isFinite(v) || v < 0 || v > 4) {
+        outFail('输出端（双端）：' + tag(x) + ' 的顶层 position＝' + JSON.stringify(x.e.position) +
+          '（双端卡要压在 0–4：酒馆里 5–7 是「示例消息前／后」，会和叙梦的编号撞车）');
+      }
+      if (e2 === null) {
+        outFail('输出端（双端）：' + tag(x) + ' 没写 extensions.position —— 酒馆那一端读不到');
+      } else if (v !== null && isFinite(v) && isFinite(e2) && v !== e2) {
+        outFail('输出端（双端）：' + tag(x) + ' 两轨位置不同（顶层 ' + v + ' / extensions ' + e2 + '）—— 两端会落在不同槽位');
+      }
+    }
+    if (outBad === 0) rep.pass('输出端（双端）：' + all.length + ' 条两轨齐全、顶层在 0–4、两轨同值');
+  }
+  if (outBad > LIST_CAP) rep.hint('输出端（' + OUTPUT_LABEL[mode] + '）：另有 ' + (outBad - LIST_CAP) + ' 条同类问题未列出');
 
   /* ④ comment 命名规范 -------------------------------------------------- */
   const badName = all.filter((x) => has(x.e, 'comment') && String(x.e.comment).trim() && !COMMENT_RE.test(String(x.e.comment).trim()));

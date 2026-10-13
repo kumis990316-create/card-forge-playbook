@@ -15,7 +15,14 @@
       "probability": 100,
       "useProbability": true,
       "disable": false,
-      "displayIndex": 0
+      "displayIndex": 0,
+      "extensions": {
+        "position": 0,
+        "depth": 4,
+        "probability": 100,
+        "exclude_recursion": false,
+        "display_index": 0
+      }
     },
     "1": {
       "uid": 1,
@@ -31,12 +38,23 @@
       "probability": 100,
       "useProbability": true,
       "disable": false,
-      "displayIndex": 1
+      "displayIndex": 1,
+      "extensions": {
+        "position": 0,
+        "depth": 4,
+        "probability": 100,
+        "exclude_recursion": false,
+        "display_index": 1
+      }
     },
     "2": {
       "uid": 2,
       "comment": "C1.1 米拉（角色条）",
-      "key": ["米拉", "记账员", "账本"],
+      "key": [
+        "米拉",
+        "记账员",
+        "账本"
+      ],
       "keysecondary": [],
       "content": "## 一句话\n米拉，十九岁，替整条街记赊账的姑娘。\n\n## 标签\n- 记账员 · 手快 · 嘴硬心软\n\n## 外形\n- 灰绿色的旧围裙，袖口用炭笔写满了数字。\n- 左手无名指有一道被纸割出来的旧口子。\n\n## 怎么上手\n- 她先算账，再说话；你报一个数，她会当场核一遍。\n\n## 台词样本\n- 「你上回欠的三枚，利钱我不算你的。别谢，我嫌麻烦。」\n- 「账本不认人，只认数。」\n\n## 开门之后\n- **结局一 · 清账**：她把你的名字划掉，合上本子。\n- **结局二 · 挂账**：她把你写进下一页，说下个月再来。",
       "constant": false,
@@ -47,12 +65,23 @@
       "probability": 100,
       "useProbability": true,
       "disable": false,
-      "displayIndex": 2
+      "displayIndex": 2,
+      "extensions": {
+        "position": 0,
+        "depth": 4,
+        "probability": 100,
+        "exclude_recursion": false,
+        "display_index": 2
+      }
     },
     "3": {
       "uid": 3,
       "comment": "C2.1 灰渡酒馆（场景条）",
-      "key": ["酒馆", "旅店", "柜台"],
+      "key": [
+        "酒馆",
+        "旅店",
+        "柜台"
+      ],
       "keysecondary": [],
       "content": "## 一句话\n桥北第二家，招牌是一块被烟熏黑的木板。\n\n## 场里有什么\n- 四张桌子，靠窗那张的腿短了一截，垫着账本。\n- 柜台后有一排铜筹，按面值串在铁丝上。\n\n## 会发生什么\n- 夜里打烊后，账本会摊在柜台上，等人来对。",
       "constant": false,
@@ -63,12 +92,23 @@
       "probability": 100,
       "useProbability": true,
       "disable": false,
-      "displayIndex": 3
+      "displayIndex": 3,
+      "extensions": {
+        "position": 0,
+        "depth": 4,
+        "probability": 100,
+        "exclude_recursion": false,
+        "display_index": 3
+      }
     },
     "4": {
       "uid": 4,
       "comment": "C3.1 事件：汛期漂来的箱子（触发条）",
-      "key": ["木箱", "漂来", "汛期"],
+      "key": [
+        "木箱",
+        "漂来",
+        "汛期"
+      ],
       "keysecondary": [],
       "content": "## 一句话\n汛期的第三个夜里，一只上了锁的木箱撞在桥墩上。\n\n## 场里有什么\n- 箱子是船用的樟木，锁扣锈死了，缝里塞着湿透的账页。\n\n## 会发生什么\n- 米拉认得账页上的字迹，但她说不是她写的。",
       "constant": false,
@@ -79,7 +119,14 @@
       "probability": 100,
       "useProbability": true,
       "disable": false,
-      "displayIndex": 4
+      "displayIndex": 4,
+      "extensions": {
+        "position": 0,
+        "depth": 4,
+        "probability": 100,
+        "exclude_recursion": false,
+        "display_index": 4
+      }
     }
   }
 }
