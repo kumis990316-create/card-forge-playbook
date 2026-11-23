@@ -9,10 +9,10 @@
  *      position／depth／probability，缺一即必须修（ST 会给缺的字段塞默认值，
  *      于是「你以为写了 position: 4，实际按默认 0 注入」）。
  *   ② 类型与范围：probability 0–100、depth 0–10、order 必须是数字（超范围＝必须修）。
- *   ③ 位置双轨（**本库要教的经典坑**）：ST 导出里 position／depth／probability
- *      会同时出现在顶层与 extensions 里。两轨都写且**值不同** ⇒ 必须修
- *      （编辑器读一轨、运行时读另一轨，表现就是「预览对、实跑不对」）；
- *      只写了一轨 ⇒ 提示（能用，但别的工具可能读错轨）。
+ *   ③ 位置双轨（**本库要教的经典坑**）：position 的顶层写叙梦档（5–10）、
+ *      extensions 写酒馆档（0–7），同一个槽位相差 5；depth／probability
+ *      两轨同值。两轨都写但不满足 ⇒ 必须修；只写一轨按输出端判：
+ *      酒馆只写 extensions、叙梦只写顶层正常，双端缺一轨＝必须修。
  *   ④ comment 命名规范 `C<数字>.<数字> 名称`：不合规 ⇒ 提示（编号是给作者自己看的坐标系）。
  *   ⑤ uid 重复 ⇒ 必须修。
  * 只读不写。位置双轨也可单独只报形态：见 04_铁律与坑.md 三。
@@ -31,12 +31,16 @@ const OUTPUT_ALIAS = {
 const OUTPUT_LABEL = { st: '酒馆', xm: '叙梦', both: '双端' };
 
 
-/* 条目必备字段（照 ST 世界书导出） */
-const REQUIRED_FIELDS = ['uid', 'comment', 'key', 'content', 'constant', 'order', 'position', 'depth', 'probability'];
+/* 条目必备字段（照 ST 世界书导出；position/depth/probability 可在顶层或 extensions） */
+const REQUIRED_FIELDS = ['uid', 'comment', 'key', 'content', 'constant', 'order'];
+const DUAL_FIELDS = ['position', 'depth', 'probability'];
 /* 范围表：0–100 / 0–10 */
 const RANGES = [['probability', 0, 100], ['depth', 0, 10]];
-/* 双轨位置字段 */
+/* 双轨位置字段；position 两轨差 5，另两个字段两轨同值 */
 const POS_FIELDS = ['position', 'depth', 'probability'];
+const POS_OFFSET = 5;
+const POS_TOP_MIN = 5, POS_TOP_MAX = 10;
+const POS_EXT_MIN = 0, POS_EXT_MAX = 7;
 /* comment 命名规范：C<数字>.<数字> 名称 */
 const COMMENT_RE = /^[A-Za-z]\d+(?:\.\d+)*\s+\S/;
 /* 逐条罗列上限 */
@@ -285,7 +289,11 @@ function run(target, opt) {
   const missingCount = new Map();
   let missRows = 0;
   for (const x of all) {
+    const et = x.e.extensions && typeof x.e.extensions === 'object' ? x.e.extensions : null;
     const miss = REQUIRED_FIELDS.filter((f) => !has(x.e, f));
+    for (const f of DUAL_FIELDS) {
+      if (!has(x.e, f) && !has(et, f)) miss.push(f);
+    }
     if (!miss.length) continue;
     missRows++;
     for (const f of miss) missingCount.set(f, (missingCount.get(f) || 0) + 1);
@@ -294,7 +302,7 @@ function run(target, opt) {
     }
   }
   if (missRows === 0) {
-    rep.pass('字段完整性：' + all.length + ' 个条目九个字段齐全（' + REQUIRED_FIELDS.join('／') + '）');
+    rep.pass('字段完整性：' + all.length + ' 个条目九个字段齐全（' + REQUIRED_FIELDS.concat(DUAL_FIELDS).join('／') + '；位置三件可在顶层或 extensions）');
   } else if (missRows > LIST_CAP) {
     rep.hint('字段完整性：另有 ' + (missRows - LIST_CAP) + ' 个条目也缺字段未列出（共 ' + missRows + ' 条）');
   }
@@ -305,12 +313,16 @@ function run(target, opt) {
   /* ② 类型与范围 ------------------------------------------------------- */
   let rangeBad = 0;
   for (const x of all) {
+    const et = x.e.extensions && typeof x.e.extensions === 'object' ? x.e.extensions : null;
     for (const [f, lo, hi] of RANGES) {
-      if (!has(x.e, f)) continue;
-      const v = num(x.e[f]);
-      if (!isFinite(v) || v < lo || v > hi) {
-        rangeBad++;
-        rep.fail('类型范围：' + tag(x) + ' 的 ' + f + '＝' + JSON.stringify(x.e[f]) + '（应为 ' + lo + '–' + hi + ' 的数字）');
+      const tracks = [['顶层', x.e], ['extensions', et]];
+      for (const [where, obj] of tracks) {
+        if (!obj || !has(obj, f)) continue;
+        const v = num(obj[f]);
+        if (!isFinite(v) || v < lo || v > hi) {
+          rangeBad++;
+          rep.fail('类型范围：' + tag(x) + ' 的 ' + (where === '顶层' ? f : where + '.' + f) + '＝' + JSON.stringify(obj[f]) + '（应为 ' + lo + '–' + hi + ' 的数字）');
+        }
       }
     }
     if (has(x.e, 'order') && !isNumeric(x.e.order)) {
@@ -326,38 +338,67 @@ function run(target, opt) {
   if (rangeBad === 0) rep.pass('类型范围：probability 0–100、depth 0–10、order 数字，' + all.length + ' 个条目全部合规');
 
   /* ③ 位置双轨 --------------------------------------------------------- */
-  let dualBad = 0;
+  let dualBad = 0, offTableTotal = 0;
   const solo = [], agree = [];
   for (const f of POS_FIELDS) {
-    const onlyTop = [], onlyExt = [], same = [], diff = [];
+    const onlyTop = [], onlyExt = [], same = [], diff = [], offTable = [];
     for (const x of all) {
       const et = x.e.extensions && typeof x.e.extensions === 'object' ? x.e.extensions : null;
       const top = has(x.e, f), ext = has(et, f);
-      if (top && ext) (sameValue(x.e[f], et[f]) ? same : diff).push({ x, a: x.e[f], b: et[f] });
-      else if (top) onlyTop.push(x);
+      if (top && ext) {
+        if (f === 'position') {
+          // 位置是唯一「两端编号差 5」的字段：顶层＝叙梦档，extensions＝酒馆档。
+          // 纯酒馆模式不比较两轨（酒馆只读 extensions，范围由 ③′ 查）。
+          if (mode === 'st') continue;
+          const tv = num(x.e[f]), ev = num(et[f]);
+          if (isFinite(ev) && ev >= POS_EXT_MIN && ev <= 5 && isFinite(tv) && tv === ev + POS_OFFSET) {
+            same.push({ x, a: x.e[f], b: et[f] });
+          } else if (isFinite(ev) && (ev === 6 || ev === 7)) {
+            offTable.push(x);
+          } else {
+            diff.push({ x, a: x.e[f], b: et[f], want: isFinite(ev) ? ev + POS_OFFSET : null });
+          }
+        } else {
+          (sameValue(x.e[f], et[f]) ? same : diff).push({ x, a: x.e[f], b: et[f] });
+        }
+      } else if (top) onlyTop.push(x);
       else if (ext) onlyExt.push(x);
     }
     for (const d of diff) {
       dualBad++;
       if (dualBad <= LIST_CAP) {
-        rep.fail('位置双轨：' + tag(d.x) + ' 的 ' + f + ' 顶层＝' + JSON.stringify(d.a) + ' 与 extensions＝' + JSON.stringify(d.b) +
-          ' 不一致（编辑器读一轨、运行时读另一轨；改成同值，或只保留一轨）');
+        if (f === 'position') {
+          rep.fail('位置双轨：' + tag(d.x) + ' 的 position 顶层＝' + JSON.stringify(d.a) + ' 与 extensions＝' + JSON.stringify(d.b) +
+            ' 不是同槽位（叙梦档应比酒馆档大 ' + POS_OFFSET + '；顶层应为 ' + (d.want === null ? 'extensions + 5' : d.want) + '）');
+        } else {
+          rep.fail('位置双轨：' + tag(d.x) + ' 的 ' + f + ' 顶层＝' + JSON.stringify(d.a) + ' 与 extensions＝' + JSON.stringify(d.b) +
+            ' 不一致（depth／probability 两轨必须同值）');
+        }
       }
     }
     if (diff.length > LIST_CAP) rep.hint('位置双轨：另有 ' + (diff.length - LIST_CAP) + ' 条 ' + f + ' 两轨不一致未列出');
-    if (onlyTop.length || onlyExt.length) {
-      solo.push(f + '：只写顶层 ' + onlyTop.length + ' 条 · 只写 extensions ' + onlyExt.length + ' 条（例：' +
-        (onlyTop.concat(onlyExt).slice(0, 3).map(tag).join('、') || '—') + '）');
+    for (let i = 0; i < offTable.length && i < LIST_CAP; i++) {
+      rep.hint('位置双轨：' + tag(offTable[i]) + ' 的 extensions.position＝' + JSON.stringify(offTable[i].e.extensions.position) +
+        '（酒馆新档位 6／7 不在 +5 对照表里，顶层请人工核对，不判必须修）');
     }
-    if (same.length && !diff.length && !onlyTop.length && !onlyExt.length) agree.push(f + ' 两轨一致 ' + same.length + ' 条');
+    offTableTotal += offTable.length;
+    if (onlyTop.length || onlyExt.length) solo.push({ f, onlyTop, onlyExt });
+    if (same.length && !diff.length && !onlyTop.length && !onlyExt.length) {
+      agree.push(f + (f === 'position' ? ' 同槽位差 ' + POS_OFFSET + '：' + same.length + ' 条' : ' 两轨一致 ' + same.length + ' 条') +
+        (offTable.length ? '（另有 ' + offTable.length + ' 条 extensions.position 6／7 不在对照表，已提示）' : ''));
+    }
   }
   if (agree.length) rep.pass('位置双轨：' + agree.join(' · '));
-  if (agree.length === 0 && dualBad === 0 && solo.length === 0) {
+  if (agree.length === 0 && dualBad === 0 && solo.length === 0 && offTableTotal === 0) {
     rep.pass('位置双轨：position／depth／probability 都没有两轨打架，也没有条目同时写两轨');
   }
   for (const s of solo) {
-    if (mode === 'xm' && s.startsWith('position：')) continue;   // 叙梦卡只写顶层＝正常形态
-    rep.hint('位置双轨：' + s + '；只写一轨也能跑（ST 会归一化），但别的工具可能读错轨，建议两轨写同值');
+    if (s.f === 'position' && mode === 'xm' && s.onlyExt.length === 0) continue;   // 叙梦只写顶层＝正常
+    if (s.f === 'position' && mode === 'st' && s.onlyTop.length === 0) continue;   // 酒馆只写 extensions＝正常
+    const parts = [];
+    if (s.onlyTop.length) parts.push('只写顶层 ' + s.onlyTop.length + ' 条');
+    if (s.onlyExt.length) parts.push('只写 extensions ' + s.onlyExt.length + ' 条');
+    rep.hint('位置双轨：' + s.f + ' ' + parts.join(' · ') + '；只写一轨也能跑，但另一端可能读不到，按输出端补齐');
   }
 
   /* ③′ 输出端形态（位置按哪一端的规矩查） ------------------------------- */
@@ -370,53 +411,55 @@ function run(target, opt) {
   const outFail = (msg) => { outBad++; if (outBad <= LIST_CAP) rep.fail(msg); };
 
   if (mode === 'xm') {
-    // 叙梦读顶层：0–10（界面六格是 5–10）。只写顶层＝正常形态，不算问题
-    for (const x of all) {
-      const v = topPos(x);
-      if (v === null || !isFinite(v) || v < 0 || v > 10) {
-        outFail('输出端（叙梦）：' + tag(x) + ' 的顶层 position＝' + JSON.stringify(has(x.e, 'position') ? x.e.position : undefined) +
-          '（叙梦读的就是顶层，只认 0–10；界面六格对应 5–10）');
-      }
-      if (topPos(x) === null && extPos(x) !== null) {
-        outFail('输出端（叙梦）：' + tag(x) + ' 只写了 extensions.position、没写顶层 —— 叙梦只读顶层，这条会落到默认位置');
-      }
-    }
-    if (outBad === 0) rep.pass('输出端（叙梦）：' + all.length + ' 条位置都写在顶层、且落在 0–10 内');
-  } else if (mode === 'st') {
-    for (const x of all) {
-      const v = topPos(x), e2 = extPos(x);
-      if (v !== null && (!isFinite(v) || v < 0 || v > 7)) {
-        outFail('输出端（酒馆）：' + tag(x) + ' 的顶层 position＝' + JSON.stringify(x.e.position) + '（酒馆枚举只有 0–7）');
-      }
-      if (e2 !== null && (!isFinite(e2) || e2 < 0 || e2 > 7)) {
-        outFail('输出端（酒馆）：' + tag(x) + ' 的 extensions.position＝' + JSON.stringify(x.e.extensions.position) + '（酒馆枚举只有 0–7）');
-      }
-      if (v !== null && isFinite(v) && v >= 5 && v <= 7 && e2 === null) {
-        outBad++;
-        if (outBad <= LIST_CAP) {
-          rep.hint('输出端（酒馆）：' + tag(x) + ' 顶层写了 position=' + v +
-            '，但酒馆里 5–7 是「示例消息前／后」，不是角色定义的位置 —— 双端卡的顶层要压在 0–4');
-        }
-      }
-    }
-    if (outBad === 0) rep.pass('输出端（酒馆）：' + all.length + ' 条的位置字段都落在酒馆枚举内（0–7）');
-  } else {
-    // 双端：顶层压 0–4（两端唯一不撞车的一段）＋ extensions 同值；少一轨＝必须修
+    // 叙梦读顶层：界面档位 5–10；extensions 若写，按酒馆档 0–7 查范围
     for (const x of all) {
       const v = topPos(x), e2 = extPos(x);
       if (v === null) {
-        outFail('输出端（双端）：' + tag(x) + ' 没写顶层 position —— 叙梦那一端读不到');
-      } else if (!isFinite(v) || v < 0 || v > 4) {
-        outFail('输出端（双端）：' + tag(x) + ' 的顶层 position＝' + JSON.stringify(x.e.position) +
-          '（双端卡要压在 0–4：酒馆里 5–7 是「示例消息前／后」，会和叙梦的编号撞车）');
+        outFail('输出端（叙梦）：' + tag(x) + ' 没写顶层 position（叙梦只读顶层；只写 extensions 会落到默认位置）');
+      } else if (!isFinite(v) || v < POS_TOP_MIN || v > POS_TOP_MAX) {
+        outFail('输出端（叙梦）：' + tag(x) + ' 的顶层 position＝' + JSON.stringify(x.e.position) +
+          '（叙梦界面档位是 5–10，顶层只认这个范围）');
       }
-      if (e2 === null) {
-        outFail('输出端（双端）：' + tag(x) + ' 没写 extensions.position —— 酒馆那一端读不到');
-      } else if (v !== null && isFinite(v) && isFinite(e2) && v !== e2) {
-        outFail('输出端（双端）：' + tag(x) + ' 两轨位置不同（顶层 ' + v + ' / extensions ' + e2 + '）—— 两端会落在不同槽位');
+      if (e2 !== null && (!isFinite(e2) || e2 < POS_EXT_MIN || e2 > POS_EXT_MAX)) {
+        outFail('输出端（叙梦）：' + tag(x) + ' 的 extensions.position＝' + JSON.stringify(x.e.extensions.position) +
+          '（extensions 是酒馆档，只认 0–7）');
       }
     }
-    if (outBad === 0) rep.pass('输出端（双端）：' + all.length + ' 条两轨齐全、顶层在 0–4、两轨同值');
+    if (outBad === 0) rep.pass('输出端（叙梦）：' + all.length + ' 条顶层都在 5–10；extensions 若写也在 0–7');
+  } else if (mode === 'st') {
+    let onlyTop = 0, onlyExt = 0;
+    for (const x of all) {
+      const v = topPos(x), e2 = extPos(x);
+      if (v !== null && (!isFinite(v) || v < POS_TOP_MIN || v > POS_TOP_MAX)) {
+        outFail('输出端（酒馆）：' + tag(x) + ' 的顶层 position＝' + JSON.stringify(x.e.position) +
+          '（顶层按叙梦档写 5–10；纯酒馆卡建议只写 extensions）');
+      }
+      if (e2 !== null && (!isFinite(e2) || e2 < POS_EXT_MIN || e2 > POS_EXT_MAX)) {
+        outFail('输出端（酒馆）：' + tag(x) + ' 的 extensions.position＝' + JSON.stringify(x.e.extensions.position) + '（酒馆档位只有 0–7）');
+      }
+      if (e2 !== null) onlyExt++;
+      if (v !== null && e2 === null) onlyTop++;
+    }
+    if (onlyTop) rep.hint('输出端（酒馆）：' + onlyTop + ' 条只写了顶层 position，没写 extensions（酒馆读 extensions，运行时可能按默认位置；建议补 extensions）');
+    if (outBad === 0) rep.pass('输出端（酒馆）：' + all.length + ' 条位置字段都在 5–10／0–7 的轨道范围内' + (onlyExt ? '；其中 ' + onlyExt + ' 条写了 extensions' : ''));
+  } else {
+    // 双端：顶层写叙梦档 5–10，extensions 写酒馆档 0–7，同槽位相差 5
+    for (const x of all) {
+      const v = topPos(x), e2 = extPos(x);
+      if (v === null) {
+        outFail('输出端（双端）：' + tag(x) + ' 没写顶层 position（叙梦那一端读不到）');
+      } else if (!isFinite(v) || v < POS_TOP_MIN || v > POS_TOP_MAX) {
+        outFail('输出端（双端）：' + tag(x) + ' 的顶层 position＝' + JSON.stringify(x.e.position) + '（叙梦档是 5–10）');
+      }
+      if (e2 === null) {
+        outFail('输出端（双端）：' + tag(x) + ' 没写 extensions.position（酒馆那一端读不到）');
+      } else if (!isFinite(e2) || e2 < POS_EXT_MIN || e2 > POS_EXT_MAX) {
+        outFail('输出端（双端）：' + tag(x) + ' 的 extensions.position＝' + JSON.stringify(x.e.extensions.position) + '（酒馆档只有 0–7）');
+      } else if (e2 <= 5 && v !== null && isFinite(v) && v !== e2 + POS_OFFSET) {
+        outFail('输出端（双端）：' + tag(x) + ' 两轨不是同槽位（顶层 ' + v + ' / extensions ' + e2 + '，应满足顶层 = extensions + 5）');
+      }
+    }
+    if (outBad === 0) rep.pass('输出端（双端）：' + all.length + ' 条两轨齐全、顶层 5–10、extensions 0–7，同槽位差 5');
   }
   if (outBad > LIST_CAP) rep.hint('输出端（' + OUTPUT_LABEL[mode] + '）：另有 ' + (outBad - LIST_CAP) + ' 条同类问题未列出');
 
