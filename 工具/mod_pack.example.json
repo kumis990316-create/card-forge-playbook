@@ -1,0 +1,35 @@
+{
+  "name": "示例写手包",
+  "description": "用 mod_upload.js 批量上传的最小示例。正式用时换成你自己的 MOD 名称、简介与条目。",
+  "entries": [
+    {
+      "type": "worldBook",
+      "name": "世界观总纲",
+      "enabled": true,
+      "content": "这里放世界书条目的正文。",
+      "keys": ["世界观"],
+      "position": 7,
+      "order": 100,
+      "constant": false
+    },
+    {
+      "type": "systemPrompt",
+      "name": "系统提示",
+      "enabled": true,
+      "content": "这里放系统提示词的正文。"
+    },
+    {
+      "type": "historyInstructions",
+      "name": "历史指令",
+      "enabled": true,
+      "content": "这里放历史指令的正文。"
+    },
+    {
+      "type": "regex",
+      "name": "合并空行",
+      "enabled": true,
+      "pattern": "\\n{2,}",
+      "replacement": "\\n"
+    }
+  ]
+}
